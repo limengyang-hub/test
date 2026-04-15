@@ -11,50 +11,25 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Build
+      - name: Show Xcode version
+        run: xcodebuild -version
+
+      - name: Show files
+        run: |
+          pwd
+          ls -la
+          find . -maxdepth 3 \( -name "*.xcodeproj" -o -name "*.xcworkspace" \)
+
+      - name: Show project schemes
+        run: |
+          xcodebuild -list -project test01.xcodeproj
+
+      - name: Build without signing
         run: |
           xcodebuild \
             -project test01.xcodeproj \
             -scheme test01 \
             -configuration Release \
+            -destination 'generic/platform=iOS' \
+            CODE_SIGNING_ALLOWED=NO \
             clean build
-
-      - name: Archive
-        run: |
-          xcodebuild \
-            -project test01.xcodeproj \
-            -scheme test01 \
-            -configuration Release \
-            -archivePath $RUNNER_TEMP/test01.xcarchive \
-            archive
-
-      - name: Export IPA
-        run: |
-          cat > ExportOptions.plist <<EOF
-          <?xml version="1.0" encoding="UTF-8"?>
-          <plist version="1.0">
-          <dict>
-            <key>method</key>
-            <string>app-store</string>
-          </dict>
-          </plist>
-          EOF
-
-          xcodebuild -exportArchive \
-            -archivePath $RUNNER_TEMP/test01.xcarchive \
-            -exportPath $RUNNER_TEMP/export \
-            -exportOptionsPlist ExportOptions.plist
-
-      - name: Setup API Key
-        run: |
-          mkdir -p ~/.appstoreconnect/private_keys
-          echo "${{ secrets.APPSTORE_PRIVATE_KEY }}" > ~/.appstoreconnect/private_keys/AuthKey_${{ secrets.APPSTORE_KEY_ID }}.p8
-
-      - name: Upload
-        run: |
-          IPA_PATH=$(find $RUNNER_TEMP/export -name "*.ipa" | head -n 1)
-          xcrun iTMSTransporter \
-            -m upload \
-            -assetFile "$IPA_PATH" \
-            -apiKey ${{ secrets.APPSTORE_KEY_ID }} \
-            -apiIssuer ${{ secrets.APPSTORE_ISSUER_ID }}
