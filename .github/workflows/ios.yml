@@ -108,6 +108,10 @@ jobs:
       - name: Upload to App Store Connect
         run: |
           set -e
+          
+          IPA_PATH=$(find "$RUNNER_TEMP/export" -name "*.ipa" | head -n 1)
+          echo "IPA_PATH=$IPA_PATH"
+          
           if [ -z "$IPA_PATH" ] || [ ! -f "$IPA_PATH" ]; then
             echo "IPA file not found"
             exit 1
