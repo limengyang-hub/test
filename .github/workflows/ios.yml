@@ -23,17 +23,21 @@ jobs:
           BUILD_PROVISION_PROFILE_BASE64: ${{ secrets.BUILD_PROVISION_PROFILE_BASE64 }}
           KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
         run: |
+          set -e
+
           CERT_PATH="$RUNNER_TEMP/dist.p12"
           PP_PATH="$RUNNER_TEMP/profile.mobileprovision"
           KEYCHAIN_PATH="$RUNNER_TEMP/app-signing.keychain-db"
 
-          echo -n "$BUILD_CERTIFICATE_BASE64" | base64 --decode -o "$CERT_PATH"
-          echo -n "$BUILD_PROVISION_PROFILE_BASE64" | base64 --decode -o "$PP_PATH"
+          echo "$BUILD_CERTIFICATE_BASE64" | base64 --decode > "$CERT_PATH"
+          echo "$BUILD_PROVISION_PROFILE_BASE64" | base64 --decode > "$PP_PATH"
 
           security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
           security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
           security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
           security import "$CERT_PATH" -P "$P12_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
+
           security list-keychains -d user -s "$KEYCHAIN_PATH"
 
           mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
@@ -43,15 +47,19 @@ jobs:
         run: |
           echo "=== Xcode ==="
           xcodebuild -version
+
           echo "=== Build Settings ==="
           xcodebuild -project test01.xcodeproj -scheme test01 -showBuildSettings | grep -E "PRODUCT_BUNDLE_IDENTIFIER|CODE_SIGN_STYLE|DEVELOPMENT_TEAM|PROVISIONING_PROFILE_SPECIFIER|CODE_SIGN_IDENTITY" || true
+
           echo "=== Provisioning Profiles ==="
           ls -la ~/Library/MobileDevice/Provisioning\ Profiles || true
+
           echo "=== Code Signing Identities ==="
           security find-identity -v -p codesigning "$RUNNER_TEMP/app-signing.keychain-db" || true
 
       - name: Archive
         run: |
+          set -e
           xcodebuild \
             -project test01.xcodeproj \
             -scheme test01 \
@@ -67,6 +75,8 @@ jobs:
 
       - name: Export IPA
         run: |
+          set -e
+
           cat > "$RUNNER_TEMP/ExportOptions.plist" <<EOF
           <?xml version="1.0" encoding="UTF-8"?>
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -83,10 +93,6 @@ jobs:
               <key>com.cmchat.CMChatDemo</key>
               <string>test01_appstore</string>
             </dict>
-            <key>stripSwiftSymbols</key>
-            <true/>
-            <key>uploadSymbols</key>
-            <true/>
           </dict>
           </plist>
           EOF
@@ -98,11 +104,29 @@ jobs:
 
           echo "=== Exported files ==="
           ls -la "$RUNNER_TEMP/export"
-          find "$RUNNER_TEMP/export" -maxdepth 2 -type f
-
-      - name: Upload to App Store Connect
+          find "$RUNNER_TEMP/export"
+          
+      - name: Setup App Store Connect API Key
+        env:
+          APPSTORE_PRIVATE_KEY: ${{ secrets.APPSTORE_PRIVATE_KEY }}
+          APPSTORE_KEY_ID: ${{ secrets.APPSTORE_KEY_ID }}
         run: |
           set -e
+          mkdir -p ~/.appstoreconnect/private_keys
+          printf "%s" "$APPSTORE_PRIVATE_KEY" > ~/.appstoreconnect/private_keys/AuthKey_${APPSTORE_KEY_ID}.p8
+          chmod 600 ~/.appstoreconnect/private_keys/AuthKey_${APPSTORE_KEY_ID}.p8
+
+          echo "=== API Key Files ==="
+          ls -la ~/.appstoreconnect/private_keys
+          wc -l ~/.appstoreconnect/private_keys/AuthKey_${APPSTORE_KEY_ID}.p8
+
+      - name: Upload to App Store Connect
+        env:
+          APPSTORE_KEY_ID: ${{ secrets.APPSTORE_KEY_ID }}
+          APPSTORE_ISSUER_ID: ${{ secrets.APPSTORE_ISSUER_ID }}
+        run: |
+          set -e
+
           IPA_PATH=$(find "$RUNNER_TEMP/export" -name "*.ipa" | head -n 1)
           echo "IPA_PATH=$IPA_PATH"
 
@@ -114,5 +138,5 @@ jobs:
           xcrun altool --upload-app \
             -f "$IPA_PATH" \
             -t ios \
-            --apiKey "${{ secrets.APPSTORE_KEY_ID }}" \
-            --apiIssuer "${{ secrets.APPSTORE_ISSUER_ID }}"
+            --apiKey "$APPSTORE_KEY_ID" \
+            --apiIssuer "$APPSTORE_ISSUER_ID"
