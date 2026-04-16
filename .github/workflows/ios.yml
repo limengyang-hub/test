@@ -11,37 +11,15 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # ✅ 选择 Xcode
       - name: Select Xcode
         run: |
           sudo xcode-select -s /Applications/Xcode_16.4.app
           xcodebuild -version
 
-      # ✅ 自动识别 Info.plist 并递增 build
-      - name: Increment build number
+      - name: Show version settings
         run: |
-          set -e
+          xcodebuild -project test01.xcodeproj -scheme test01 -showBuildSettings | grep -E "CURRENT_PROJECT_VERSION|MARKETING_VERSION|GENERATE_INFOPLIST_FILE|INFOPLIST_FILE" || true
 
-          INFO_PLIST=$(xcodebuild -project test01.xcodeproj -scheme test01 -showBuildSettings | awk -F' = ' '/INFOPLIST_FILE/ {print $2; exit}')
-          echo "INFOPLIST_FILE=$INFO_PLIST"
-
-          INFO_PLIST=${INFO_PLIST#$(pwd)/}
-          INFO_PLIST=${INFO_PLIST//\"/}
-
-          if [ ! -f "$INFO_PLIST" ]; then
-            echo "❌ Info.plist not found: $INFO_PLIST"
-            exit 1
-          fi
-
-          /usr/libexec/PlistBuddy -c "Print :CFBundleVersion" "$INFO_PLIST" || \
-          /usr/libexec/PlistBuddy -c "Add :CFBundleVersion string 1" "$INFO_PLIST"
-
-          /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $GITHUB_RUN_NUMBER" "$INFO_PLIST"
-
-          echo "✅ New build number:"
-          /usr/libexec/PlistBuddy -c "Print :CFBundleVersion" "$INFO_PLIST"
-
-      # ✅ 安装证书
       - name: Install certificate and provisioning profile
         env:
           BUILD_CERTIFICATE_BASE64: ${{ secrets.BUILD_CERTIFICATE_BASE64 }}
@@ -61,21 +39,19 @@ jobs:
           security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
           security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
           security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
-
           security import "$CERT_PATH" -P "$P12_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
           security list-keychains -d user -s "$KEYCHAIN_PATH"
 
           mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
           cp "$PP_PATH" ~/Library/MobileDevice/Provisioning\ Profiles/
 
-      # ✅ Debug
       - name: Show signing info
         run: |
           echo "=== Xcode ==="
           xcodebuild -version
 
           echo "=== Build Settings ==="
-          xcodebuild -project test01.xcodeproj -scheme test01 -showBuildSettings | grep -E "PRODUCT_BUNDLE_IDENTIFIER|CODE_SIGN_STYLE|DEVELOPMENT_TEAM|PROVISIONING_PROFILE_SPECIFIER|CODE_SIGN_IDENTITY" || true
+          xcodebuild -project test01.xcodeproj -scheme test01 -showBuildSettings | grep -E "PRODUCT_BUNDLE_IDENTIFIER|CODE_SIGN_STYLE|DEVELOPMENT_TEAM|PROVISIONING_PROFILE_SPECIFIER|CODE_SIGN_IDENTITY|CURRENT_PROJECT_VERSION|MARKETING_VERSION" || true
 
           echo "=== Profiles ==="
           ls -la ~/Library/MobileDevice/Provisioning\ Profiles || true
@@ -83,7 +59,6 @@ jobs:
           echo "=== Identities ==="
           security find-identity -v -p codesigning "$RUNNER_TEMP/app-signing.keychain-db" || true
 
-      # ✅ Archive
       - name: Archive
         run: |
           set -e
@@ -98,9 +73,10 @@ jobs:
             CODE_SIGN_IDENTITY="Apple Distribution" \
             PROVISIONING_PROFILE_SPECIFIER="test01_appstore" \
             PRODUCT_BUNDLE_IDENTIFIER="com.cmchat.CMChatDemo" \
+            MARKETING_VERSION="1.0.0" \
+            CURRENT_PROJECT_VERSION="$GITHUB_RUN_NUMBER" \
             clean archive
 
-      # ✅ 导出 IPA
       - name: Export IPA
         run: |
           set -e
@@ -134,7 +110,6 @@ jobs:
           ls -la "$RUNNER_TEMP/export"
           find "$RUNNER_TEMP/export"
 
-      # ✅ 写入 API Key
       - name: Setup App Store Connect API Key
         env:
           APPSTORE_PRIVATE_KEY: ${{ secrets.APPSTORE_PRIVATE_KEY }}
@@ -144,10 +119,8 @@ jobs:
           mkdir -p ~/.appstoreconnect/private_keys
           printf "%s" "$APPSTORE_PRIVATE_KEY" > ~/.appstoreconnect/private_keys/AuthKey_${APPSTORE_KEY_ID}.p8
           chmod 600 ~/.appstoreconnect/private_keys/AuthKey_${APPSTORE_KEY_ID}.p8
-
           ls -la ~/.appstoreconnect/private_keys
 
-      # ✅ 上传
       - name: Upload to App Store Connect
         env:
           APPSTORE_KEY_ID: ${{ secrets.APPSTORE_KEY_ID }}
