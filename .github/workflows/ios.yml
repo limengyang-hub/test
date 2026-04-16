@@ -5,7 +5,7 @@ on:
 
 jobs:
   build:
-    runs-on: macos-latest
+    runs-on: macos-14
 
     steps:
       - name: Checkout
@@ -34,9 +34,14 @@ jobs:
           mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
           cp "$PP_PATH" ~/Library/MobileDevice/Provisioning\ Profiles/
 
-      - name: Show build settings
+      - name: Show signing info
         run: |
+          echo "=== Build Settings ==="
           xcodebuild -project test01.xcodeproj -scheme test01 -showBuildSettings | grep -E "PRODUCT_BUNDLE_IDENTIFIER|CODE_SIGN_STYLE|DEVELOPMENT_TEAM|PROVISIONING_PROFILE_SPECIFIER|CODE_SIGN_IDENTITY" || true
+          echo "=== Provisioning Profiles ==="
+          ls -la ~/Library/MobileDevice/Provisioning\ Profiles || true
+          echo "=== Code Signing Identities ==="
+          security find-identity -v -p codesigning "$RUNNER_TEMP/app-signing.keychain-db" || true
 
       - name: Archive
         run: |
@@ -50,6 +55,7 @@ jobs:
             DEVELOPMENT_TEAM=3H69R3G362 \
             CODE_SIGN_IDENTITY="Apple Distribution" \
             PROVISIONING_PROFILE_SPECIFIER="test01_appstore" \
+            PRODUCT_BUNDLE_IDENTIFIER="com.cmchat.CMChatDemo" \
             clean archive
 
       - name: Export IPA
@@ -60,11 +66,16 @@ jobs:
           <plist version="1.0">
           <dict>
             <key>method</key>
-            <string>app-store</string>
+            <string>app-store-connect</string>
             <key>signingStyle</key>
             <string>manual</string>
             <key>teamID</key>
             <string>3H69R3G362</string>
+            <key>provisioningProfiles</key>
+            <dict>
+              <key>com.cmchat.CMChatDemo</key>
+              <string>test01_appstore</string>
+            </dict>
             <key>stripSwiftSymbols</key>
             <true/>
             <key>uploadSymbols</key>
